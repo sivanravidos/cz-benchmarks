@@ -109,6 +109,16 @@ def test_import_class_from_config(tmp_path):
             },
             None,
         ),
+        # Dict-only example - test OmegaConf resolver
+        (
+            "tsv2_bladder",
+            {
+                "path": "${oc.env:HOME}/only_dict_resolver.h5ad",
+                "organism": Organism.MOUSE,  # change default organism
+                "dict_only": "yes",  # new key
+            },
+            None,
+        ),
         # YAML-only example with new dataset
         (
             "yaml_only_dataset",
@@ -118,6 +128,20 @@ def test_import_class_from_config(tmp_path):
                     "yaml_only_dataset": {
                         "_target_": "czbenchmarks.datasets.dummy.DummyDataset",
                         "path": "/yaml_only_dataset.h5ad",
+                        "organism": Organism.HUMAN,
+                    }
+                }
+            },
+        ),
+        # YAML-only example for OmegaConf resolver
+        (
+            "yaml_resolved_dataset",
+            None,
+            {
+                "datasets": {
+                    "yaml_resolved_dataset": {
+                        "_target_": "czbenchmarks.datasets.dummy.DummyDataset",
+                        "path": "${oc.env:HOME}/yaml_resolved_dataset.h5ad",
                         "organism": Organism.HUMAN,
                     }
                 }
@@ -146,6 +170,10 @@ def test_load_custom_config(
 
     # All dict-provided keys should be present and match
     if custom_dataset_config:
+        # Ensure the input dict content is resolved for comparisons
+        custom_dataset_config = OmegaConf.create(custom_dataset_config)
+        OmegaConf.resolve(custom_dataset_config)
+
         for key, value in custom_dataset_config.items():
             if key == "organism":
                 assert str(custom_cfg[key]) == str(value)
@@ -154,6 +182,10 @@ def test_load_custom_config(
 
     # YAML-provided keys for this item should be present; when overlapping, dict wins
     if custom_yaml_content:
+        # Ensure the input YAML content is resolved for comparisons
+        custom_yaml_content = OmegaConf.create(custom_yaml_content)
+        OmegaConf.resolve(custom_yaml_content)
+
         yaml_items = custom_yaml_content.get("datasets", {}).get(dataset_name, {})
         if yaml_items:
             for key, yaml_value in yaml_items.items():
