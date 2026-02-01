@@ -49,6 +49,12 @@ class MetadataLabelPredictionTaskInput(TaskInput):
             description="Minimum number of samples required for a class to be included in evaluation."
         ),
     ] = MIN_CLASS_SIZE
+    classifiers: Annotated[
+        List[str],
+        Field(
+            description="List of classifiers to use. Options: 'lr' (Logistic Regression), 'knn' (K-Nearest Neighbors), 'rf' (Random Forest)."
+        ),
+    ] = ["lr", "knn", "rf"]
 
     @field_validator("n_folds")
     @classmethod
@@ -69,6 +75,19 @@ class MetadataLabelPredictionTaskInput(TaskInput):
     def _validate_labels(cls, v: ListLike) -> ListLike:
         if not isinstance(v, ListLike):
             raise ValueError("labels must be a list-like object.")
+        return v
+
+    @field_validator("classifiers")
+    @classmethod
+    def _validate_classifiers(cls, v: List[str]) -> List[str]:
+        valid_classifiers = {"lr", "knn", "rf"}
+        if not v:
+            raise ValueError("classifiers list cannot be empty.")
+        invalid = set(v) - valid_classifiers
+        if invalid:
+            raise ValueError(
+                f"Invalid classifiers: {invalid}. Valid options are: {valid_classifiers}"
+            )
         return v
 
 
@@ -172,8 +191,8 @@ class MetadataLabelPredictionTask(Task):
             f"Using {task_input.n_folds}-fold cross validation with random_seed {self.random_seed}"
         )
 
-        # Create classifiers
-        classifiers = {
+        # Create all available classifiers
+        all_classifiers = {
             "lr": Pipeline(
                 [
                     ("scaler", StandardScaler(with_mean=False)),
@@ -190,7 +209,14 @@ class MetadataLabelPredictionTask(Task):
                 [("rf", RandomForestClassifier(random_state=self.random_seed))]
             ),
         }
-        logger.info(f"Created classifiers: {list(classifiers.keys())}")
+        
+        # Filter to only requested classifiers
+        classifiers = {
+            name: clf
+            for name, clf in all_classifiers.items()
+            if name in task_input.classifiers
+        }
+        logger.info(f"Using classifiers: {list(classifiers.keys())}")
 
         # Store results
         results = []
@@ -221,7 +247,7 @@ class MetadataLabelPredictionTask(Task):
 
     def _compute_metrics(
         self,
-        _: MetadataLabelPredictionTaskInput,
+        task_input: MetadataLabelPredictionTaskInput,
         task_output: MetadataLabelPredictionOutput,
     ) -> List[MetricResult]:
         """Computes classification metrics across all folds.
@@ -230,7 +256,7 @@ class MetadataLabelPredictionTask(Task):
         per classifier and overall.
 
         Args:
-            _: (unused) Pydantic model with input for the task
+            task_input: Pydantic model with input for the task
             task_output: Pydantic model results from cross-validation
 
         Returns:
@@ -242,6 +268,7 @@ class MetadataLabelPredictionTask(Task):
         results_df = pd.DataFrame(results)
         metrics_list = []
 
+        # Get classifiers from results (will match the configured classifiers)
         classifiers = results_df["classifier"].unique()
         all_classifier_names = ",".join(sorted(classifiers))
         params = {"classifier": f"MEAN({all_classifier_names})"}
